@@ -120,10 +120,13 @@ local pipemt = {
 		-- Denotes which stepper runs the pipeline.
 		stepper = _M.stepper.default,
 
-		run = function(self, input)
+		run = function(self, input, nonfatal_nil)
 			if not self.step then self.step = self:stepper() end
-			local success, result = self.step(input)
-			if not success then
+			local all_done, result = self.step(input)
+			if not all_done then
+				if nonfatal_nil then
+					return nil
+				end
 				error(result, 2)
 			end
 			return result
@@ -147,8 +150,9 @@ local pipemt = {
 
 --- Create a new pipeline.
 -- Returned pipeline has several methods:
---  * res = pipeline:run([input])
+--  * res = pipeline:run([input], allow_nil)
 --    Runs the pipeline, returning the result. Optionally with input.
+--    `allow_nil` is a bool designating whether returning nil in the middle of a pipeline is allowed or if it raises an error, defaults to false.
 --  * runnerfn = pipeline:runner()
 --    Returns a function that does the same as pipeline:run([input]), but called as runnerfn([input])
 --    Useful to call a pipeline in another pipeline.
