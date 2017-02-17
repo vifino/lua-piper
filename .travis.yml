@@ -1,0 +1,24 @@
+language: python
+sudo: false
+
+env:
+  - LUA="lua 5.1"
+  - LUA="lua 5.2"
+  - LUA="lua 5.3"
+  - LUA="luajit 2.0"
+  - LUA="luajit 2.1"
+
+before_install:
+  - pip install hererocks
+  - hererocks ~/lua --$LUA -rlatest
+  - source ~/lua/bin/activate
+  - luarocks install luasocket
+  - luarocks install busted
+  - luarocks install luacov
+  - luarocks install luacov-coveralls
+
+script:
+  - busted --verbose --coverage tests
+
+after_success:
+  - luacov-coveralls
