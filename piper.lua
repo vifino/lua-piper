@@ -52,16 +52,15 @@ function _M.stepper.basic(pipeline)
 			return true, run_filter(filters[1], value)
 		end
 
-		local res = value
-		for i=1, elems do
+		local res = run_filter(filters[1], value)
+		if res == nil then
+			return true, nil
+		end
+		for i=2, elems do
 			res = run_filter(filters[i], res)
 
-			if res == nil then
-				if i == 1 then -- source, usually done processing input
-					return true, nil
-				elseif i ~= elems then -- not the end, which doesn't have to return anything.
-					return false, "Filter no. "..tostring(i).. " returned nil."
-				end
+			if res == nil and i ~= elems then -- not the end, which doesn't have to return anything.
+				return false, "Filter no. "..tostring(i).. " returned nil."
 			end
 		end
 
@@ -93,16 +92,16 @@ function _M.stepper.caching(pipeline)
 			return true, res
 		end
 
-		local res = value
-		for i=1, elems do
+		local res = run_filter(filters[1], value)
+		if res == nil then
+			rset(cache, value, nil)
+			return true, nil
+		end
+		for i=2, elems do
 			res = run_filter(filters[i], res)
 
-			if res == nil then
-				if i == 1 then -- source, usually done processing input
-					return true, nil
-				elseif i ~= elems then -- not the end, which doesn't have to return anything.
-					return false, "Filter no. "..tostring(i).. " returned nil."
-				end
+			if res == nil and i ~= elems then -- not the end, which doesn't have to return anything.
+				return false, "Filter no. "..tostring(i).. " returned nil."
 			end
 		end
 
