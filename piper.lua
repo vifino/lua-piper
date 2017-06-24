@@ -7,12 +7,13 @@
 -- Terminology:
 --   * Filter:
 --     A processing element. Can be a function or table.
---     Functions get called with the input, returning the result.
+--     Functions get called with the input, returning the success status (truey or falsey value)
+--     and a result (any value) if sucess or an error message if not.
 --   * Source:
 --     The first filter in a Pipeline. Only filter with optional input, rather than the usual enforcement.
 --     Returning nil as the result means end of input.
 --   * Sink:
---     The last filter in a Pipeline. Can return nil.
+--     The last filter in a Pipeline.
 --   * Pipeline:
 --     A collection of sources, filters and sinks.
 --     If a non-source or non-sink filter returns nil, the pipeline aborts.
@@ -23,7 +24,7 @@ local _M = {
 }
 
 -- Localize functions for performance.
-local sel = select
+local sel, tostring = select, tostring
 local rset, rget = rawset, rawget
 
 -- Helpers.
@@ -32,7 +33,9 @@ local function run_filter(filter, ...)
 	if type(filter) == "function" then
 		return filter(...)
 	else
-		return filter[sel(1, ...)]
+		local val = filter[sel(1, ...)]
+		if val then return true, val end
+		return false, "Value not found in table."
 	end
 end
 
@@ -47,18 +50,22 @@ function _M.stepper.basic(pipeline)
 		local filters = pipeline.filters
 		local elems = #filters
 		if elems == 0 then
-			return true, value
+			return false, "No filters to run."
 		elseif elems == 1 then
-			return true, run_filter(filters[1], value)
+			return run_filter(filters[1], value)
 		end
 
-		local res = run_filter(filters[1], value)
-		if res == nil then
+		local success, res = run_filter(filters[1], value)
+		if not success then return false, "Filter no. 1 failed: ".. (res and tostring(res) or "No error message returned.") end
+		if status and res == nil then
 			return true, nil
 		end
 		for i=2, elems do
-			res = run_filter(filters[i], res)
+			success, res = run_filter(filters[i], res)
 
+			if not success then
+				return false, "Filter no. "..tostring(i).." failed:" .. (res and tostring(res) or "No error message returned.")
+			end
 			if res == nil and i ~= elems then -- not the end, which doesn't have to return anything.
 				return false, "Filter no. "..tostring(i).. " returned nil."
 			end
@@ -80,26 +87,31 @@ function _M.stepper.caching(pipeline)
 		local filters = pipeline.filters
 		local elems = #filters
 		if elems == 0 then
-			return true, value
+			return false, "No filters to run."
 		end
 
 		local cached = rget(cache, value)
 		if cached then return true, cached end
 
 		if elems == 1 then
-			local res = run_filter(filters[1], value)
+			local success, res = run_filter(filters[1], value)
+			if success == false then return false, res end
 			rset(cache, value, res)
 			return true, res
 		end
 
-		local res = run_filter(filters[1], value)
+		local success, res = run_filter(filters[1], value)
+		if not success then return false, "Filter no. 1 failed: ".. (res and tostring(res) or "No error message returned.") end
 		if res == nil then
 			rset(cache, value, nil)
 			return true, nil
 		end
 		for i=2, elems do
-			res = run_filter(filters[i], res)
+			success, res = run_filter(filters[i], res)
 
+			if not success then
+				return false, "Filter no. "..tostring(i).." failed:" .. (res and tostring(res) or "No error message returned.")
+			end
 			if res == nil and i ~= elems then -- not the end, which doesn't have to return anything.
 				return false, "Filter no. "..tostring(i).. " returned nil."
 			end
@@ -119,11 +131,11 @@ local pipemt = {
 		-- Denotes which stepper runs the pipeline.
 		stepper = _M.stepper.default,
 
-		run = function(self, input, nonfatal_nil)
+		run = function(self, input, allow_fail)
 			if not self.step then self.step = self:stepper() end
-			local all_done, result = self.step(input)
-			if not all_done then
-				if nonfatal_nil then
+			local success, result = self.step(input)
+			if not success then
+				if allow_fail then
 					return nil
 				end
 				error(result, 2)
@@ -139,7 +151,7 @@ local pipemt = {
 
 		add = function(self, filter)
 			assert(filter, "Need a filter.")
-			rset(self.filters, #self.filters+1, filter)
+			rset(self.filters, #self.filters + 1, filter)
 		end,
 	},
 	__name = "pipeline",
@@ -220,11 +232,16 @@ end
 function _M.filters.map(filter)
 	return function(tmp)
 		assert(tmp, "Expected table to map over.")
+		local success, t
 
 		for i=1, #tmp do
-			tmp[i] = run_filter(filter, tmp[i])
+			success, t = run_filter(filter, tmp[i])
+			if not success then
+				return false, "While trying to map over ("..tostring(tmp)..")["..tostring(i)"]: " .. (t and tostring(t) or "No error message returned.")
+			end
+			tmp[i] = t
 		end
-		return tmp
+		return true, tmp
 	end
 end
 
@@ -234,11 +251,15 @@ function _M.filters.reduce(filter, starter)
 		assert(input, "Expected a table to reduce.")
 
 		local acc = starter
+		local success
 		for i=1, #input do
-			acc = run_filter(filter, acc, input[i])
+			success, acc = run_filter(filter, acc, input[i])
+			if not success then
+				return false, "While trying to reduce ("..tostring(input)..")["..tostring(i)"] ("..tostring(input[i]).."): " .. (t and tostring(t) or "No error message returned.")
+			end
 			input[i] = nil
 		end
-		return acc
+		return true, acc
 	end
 end
 

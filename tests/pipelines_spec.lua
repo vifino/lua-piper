@@ -8,7 +8,7 @@ describe("piper", function()
 
 		it("work for one filter", function()
 			local function add10(num)
-				return 10 + num
+				return true, 10 + num
 			end
 			local pipeline = piper.create({add10})
 			local res = pipeline:run(10)
@@ -16,10 +16,10 @@ describe("piper", function()
 		end)
 		it("work for two filters", function()
 			local function add10(num)
-				return 10 + num
+				return true, 10 + num
 			end
 			local function sub5(num)
-				return num - 5
+				return true, num - 5
 			end
 			local pipeline = piper.create({add10, sub5})
 			local res = pipeline:run(10)
